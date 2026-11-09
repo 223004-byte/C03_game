@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ADVENT RUN 3D</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js for 3D Graphics -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #080314;
+            color: #fff;
+        }
+
+        #app-wrapper {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            overflow: hidden;
+            background: #0d0620;
+        }
+
+        /* Desktop vertical mobile simulator container */
+        @media (min-aspect-ratio: 9/16) {
+            #app-wrapper {
+                max-width: 440px;
+                height: 100vh;
+                margin: 0 auto;
+                box-shadow: 0 0 60px rgba(168, 85, 247, 0.4);
+                border-left: 1px solid rgba(255, 255, 255, 0.15);
+                border-right: 1px solid rgba(255, 255, 255, 0.15);
+            }
+        }
+
+        #game-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        /* Touch Control Buttons */
+        .touch-btn {
+            background: rgba(255, 255, 255, 0.18);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
+            transition: transform 0.05s ease, background 0.1s;
+            touch-action: none;
+        }
+
+        .touch-btn:active, .touch-btn.active {
+            transform: scale(0.92);
+            background: rgba(255, 215, 0, 0.5);
+            border-color: #ffd700;
+        }
+
+        /* Neon Text Effects */
+        .neon-title {
+            text-shadow: 0 0 10px #ff007f, 0 0 20px #ff007f, 0 0 35px #00d2ff;
+        }
+        .neon-gold {
+            text-shadow: 0 0 10px #ffb700, 0 0 20px #ffea00;
+        }
+
+        .progress-bar-fill {
+            transition: width 0.1s linear;
+        }
+
+        /* Flash toast animation for checkpoint recovery */
+        #respawn-toast {
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+    </style>
+</head>
+<body class="flex justify-center items-center h-screen overflow-hidden">
+
+    <div id="app-wrapper" class="relative">
+        
+        <!-- 3D Canvas -->
+        <div id="game-container"></div>
+
+        <!-- Checkpoint Toast Message -->
+        <div id="respawn-toast" class="absolute top-20 left-1/2 -translate-x-1/2 z-20 pointer-events-none opacity-0 scale-90 bg-amber-500/90 text-slate-950 font-black text-xs px-4 py-1.5 rounded-full shadow-lg border border-yellow-200 uppercase tracking-wider flex items-center gap-1.5">
+            <i class="fa-solid fa-rotate-left"></i> チェックポイントから復帰！
+        </div>
+
+        <!-- HUD Layer -->
+        <div id="hud" class="absolute top-0 left-0 w-full p-4 z-10 pointer-events-none flex flex-col gap-3">
+            <!-- Header Status -->
+            <div class="flex justify-between items-center bg-slate-900/80 backdrop-blur-md rounded-2xl px-4 py-2.5 border border-purple-500/40 shadow-xl">
+                <!-- Stage Level -->
+                <div class="flex items-center space-x-2">
+                    <span class="bg-gradient-to-r from-amber-400 via-orange-500 to-red-600 text-slate-950 font-black px-3 py-1 rounded-xl text-xs uppercase tracking-wider shadow">
+                        STAGE <span id="level-display">1</span>
+                    </span>
+                </div>
+
+                <!-- Timer -->
+                <div class="flex items-center space-x-1.5">
+                    <i class="fa-solid fa-stopwatch text-amber-400 text-lg"></i>
+                    <span id="timer-display" class="font-mono text-2xl font-black text-amber-300 drop-shadow">60.0</span>
+                    <span class="text-xs text-amber-400/80 font-bold">s</span>
+                </div>
+            </div>
+
+            <!-- Race Progress Bar -->
+            <div class="w-full bg-slate-900/80 backdrop-blur-md rounded-xl p-1.5 border border-purple-500/30 relative flex items-center h-7 shadow-lg">
+                <div class="w-full bg-slate-800 rounded-lg h-3 relative overflow-hidden">
+                    <div id="progress-fill" class="progress-bar-fill bg-gradient-to-r from-cyan-400 via-fuchsia-500 to-amber-400 h-full rounded-lg" style="width: 0%"></div>
+                </div>
+                <!-- Player Icon Marker -->
+                <div id="player-marker" class="absolute top-0.5 text-yellow-400 text-xs transition-all duration-100" style="left: 0%;">
+                    <i class="fa-solid fa-person-running text-amber-300 text-sm drop-shadow"></i>
+                </div>
+                <!-- AI Rival Icon Marker -->
+                <div id="rival-marker" class="absolute top-0.5 text-red-500 text-xs transition-all duration-100" style="left: 0%;">
+                    <i class="fa-solid fa-person-running text-red-400 text-sm drop-shadow"></i>
+                </div>
+                <div class="absolute right-2 text-[10px] font-black text-amber-300 tracking-wider">GOAL 🏁</div>
+            </div>
+        </div>
+
+        <!-- Touch Controls UI (Mobile) -->
+        <div id="controls-ui" class="absolute bottom-6 left-0 w-full px-5 z-10 flex justify-between items-end pointer-events-none select-none">
+            <!-- Joystick Zone -->
+            <div id="joystick-zone" class="relative w-40 h-40 pointer-events-auto flex items-center justify-center touch-none">
+                <div id="joystick-base" class="w-32 h-32 rounded-full bg-purple-950/60 border-2 border-cyan-400/80 backdrop-blur-md relative flex items-center justify-center shadow-[0_0_20px_rgba(0,210,255,0.4)] pointer-events-none">
+                    <div id="joystick-stick" class="w-14 h-14 rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 border-2 border-white/90 shadow-xl absolute transition-none pointer-events-none"></div>
+                </div>
+            </div>
+
+            <!-- Jump Button -->
+            <div class="flex flex-col gap-3 pointer-events-auto items-center touch-none">
+                <button id="btn-jump" class="touch-btn w-20 h-20 bg-gradient-to-tr from-fuchsia-600 to-pink-500 border-2 border-pink-300 rounded-full flex flex-col items-center justify-center active:scale-90 select-none shadow-[0_0_20px_rgba(255,0,127,0.4)]">
+                    <i class="fa-solid fa-angles-up text-2xl text-white"></i>
+                    <span class="text-[10px] font-black tracking-widest text-pink-100 mt-0.5">JUMP</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Start Screen Modal -->
+        <div id="start-modal" class="absolute inset-0 bg-slate-950/90 backdrop-blur-md z-30 flex flex-col items-center justify-between p-7 text-center">
+            <div class="mt-6 flex flex-col items-center">
+                <div class="inline-block px-3 py-1 rounded-full bg-fuchsia-900/60 border border-fuchsia-500/50 text-fuchsia-300 font-bold text-[11px] mb-3 tracking-widest uppercase">
+                    3D ATHLETIC ACTION
+                </div>
+                <h1 class="text-4xl font-black italic tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-pink-500 to-cyan-400 neon-title mb-2">
+                    ADVENT RUN
+                </h1>
+                <p class="text-slate-300 text-xs max-w-xs font-medium">
+                    障害物を攻略してライバルより先にゴールを目指せ！
+                </p>
+            </div>
+
+            <div class="w-full max-w-xs space-y-3 my-auto">
+                <!-- Color Selector UI -->
+                <div class="bg-purple-900/40 border border-purple-500/40 rounded-2xl p-3 text-center space-y-2">
+                    <p class="text-xs font-black text-amber-300 tracking-wider">🎨 キャラクターの色を選ぼう</p>
+                    <div class="flex justify-center items-center gap-2.5 pt-1" id="color-picker-container">
+                        <button class="color-select-btn w-8 h-8 rounded-full border-2 border-white bg-yellow-400 shadow-lg scale-110 transition-transform" data-color="0xffcc00" title="黄色"></button>
+                        <button class="color-select-btn w-8 h-8 rounded-full border-2 border-white/40 bg-white shadow-lg transition-transform" data-color="0xffffff" title="白"></button>
+                        <button class="color-select-btn w-8 h-8 rounded-full border-2 border-white/40 bg-pink-400 shadow-lg transition-transform" data-color="0xff66b2" title="ピンク"></button>
+                        <button class="color-select-btn w-8 h-8 rounded-full border-2 border-white/40 bg-blue-500 shadow-lg transition-transform" data-color="0x3399ff" title="青"></button>
+                        <button class="color-select-btn w-8 h-8 rounded-full border-2 border-white/40 bg-emerald-400 shadow-lg transition-transform" data-color="0x2ecc71" title="緑"></button>
+                    </div>
+                </div>
+
+                <div class="bg-purple-900/30 border border-purple-500/30 rounded-2xl p-4 text-left text-xs space-y-2 text-purple-200">
+                    <div class="flex items-center gap-2 font-bold text-yellow-400 text-sm">
+                        <i class="fa-solid fa-gamepad"></i> 操作方法
+                    </div>
+                    <p>・<span class="text-cyan-300 font-bold">左スティック</span> : 移動</p>
+                    <p>・<span class="text-pink-300 font-bold">JUMPボタン</span> : ジャンプ</p>
+                    <p>・<span class="text-amber-300 font-bold">キーボード (PC)</span> : WASD / 矢印キー + Space</p>
+                </div>
+            </div>
+
+            <button id="btn-start" class="w-full max-w-xs py-4 rounded-2xl bg-gradient-to-r from-yellow-400 via-amber-500 to-red-500 text-slate-950 font-black text-xl tracking-wider shadow-lg shadow-amber-500/30 active:scale-95 transition">
+                CHALLENGE START
+            </button>
+        </div>
+
+        <!-- Result Screen Modal -->
+        <div id="result-modal" class="hidden absolute inset-0 bg-slate-950/90 backdrop-blur-md z-30 flex flex-col items-center justify-center p-6 text-center">
+            <!-- Win Content -->
+            <div id="win-content" class="hidden flex-col items-center space-y-4">
+                <div class="text-6xl text-yellow-400 mb-1">🏆</div>
+                <h2 class="text-3xl font-black text-yellow-300 neon-gold">STAGE CLEAR!</h2>
+                <p id="clear-time-text" class="text-slate-200 font-mono text-lg font-bold">TIME: 18.5s</p>
+                <p class="text-xs text-amber-300/80 font-bold">次のステージは難易度がアップ！</p>
+                <button id="btn-next" class="mt-4 px-8 py-3.5 bg-gradient-to-r from-emerald-400 to-teal-600 text-slate-950 font-black text-lg rounded-2xl shadow-lg active:scale-95">
+                    NEXT STAGE <i class="fa-solid fa-arrow-right ml-1"></i>
+                </button>
+            </div>
+
+            <!-- Fail Content -->
+            <div id="fail-content" class="hidden flex-col items-center space-y-4">
+                <div class="text-6xl text-red-500 mb-1">💥</div>
+                <h2 class="text-3xl font-black text-red-500 neon-title">GAME OVER</h2>
+                <p id="fail-reason-text" class="text-slate-300 text-sm font-medium">タイムアップ！</p>
+                <button id="btn-retry" class="mt-4 px-8 py-3.5 bg-gradient-to-r from-pink-500 to-purple-600 text-white font-black text-lg rounded-2xl shadow-lg active:scale-95">
+                    RETRY STAGE <i class="fa-solid fa-rotate-right ml-1"></i>
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        class SoundEngine {
+            constructor() {
+                this.ctx = null;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            }
+
+            playJump() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(150, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(450, this.ctx.currentTime + 0.15);
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.15);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.15);
+            }
+
+            playSplash() {
+                if (!this.ctx) return;
+                const bufferSize = this.ctx.sampleRate * 0.3;
+                const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+                const noise = this.ctx.createBufferSource();
+                noise.buffer = buffer;
+                const gain = this.ctx.createGain();
+                gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.3);
+                noise.connect(gain);
+                gain.connect(this.ctx.destination);
+                noise.start();
+            }
+
+            playWin() {
+                if (!this.ctx) return;
+                const notes = [261.63, 329.63, 392.00, 523.25];
+                notes.forEach((freq, idx) => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(freq, this.ctx.currentTime + idx * 0.1);
+                    gain.gain.setValueAtTime(0.2, this.ctx.currentTime + idx * 0.1);
+                    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + idx * 0.1 + 0.3);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start(this.ctx.currentTime + idx * 0.1);
+                    osc.stop(this.ctx.currentTime + idx * 0.1 + 0.3);
+                });
+            }
+
+            playFail() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(200, this.ctx.currentTime);
+                osc.frequency.linearRampToValueAtTime(80, this.ctx.currentTime + 0.4);
+                gain.gain.setValueAtTime(0.25, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.4);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.4);
+            }
+        }
+
+        const audio = new SoundEngine();
+
+        let scene, camera, renderer;
+        let playerMesh, rivalMesh;
+        let playerPos = { x: 0, y: 1.2, z: 0 };
+        let rivalPos = { x: -1.2, y: 1.2, z: 0 };
+        let playerVel = { x: 0, y: 0, z: 0 };
+        let isGrounded = true;
+
+        // Checkpoint System
+        let lastCheckpoint = { x: 0, y: 1.2, z: 0 };
+        let respawnInvulnerable = 0;
+        let knockbackTimer = 0; // Knockback duration timer
+
+        let currentLevel = 1;
+        let timeRemaining = 60;
+        let stageLength = 90;
+        let isPlaying = false;
+        let isGameOver = false;
+
+        // Player selected color
+        let selectedPlayerColor = 0xffcc00;
+
+        // Obstacles state
+        let dynamicObstacles = [];
+        let animatedSwings = [];
+        let stageGroup = null;
+
+        // Input state
+        const input = { moveX: 0, moveZ: 0, length: 0 };
+        let keys = {};
+
+        // Helper function to create Animal Crossing style cute character meshes
+        function createCharacterMesh(colorHex, isPlayer = false) {
+            const group = new THREE.Group();
+
+            const bodyMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.4 });
+            bodyMat.name = "bodyMat";
+            const skinMat = new THREE.MeshStandardMaterial({ color: 0xffe0bd, roughness: 0.5 });
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+            const cheekMat = new THREE.MeshBasicMaterial({ color: 0xff6688 });
+
+            // 1. Head
+            const headGroup = new THREE.Group();
+            headGroup.name = "headGroup";
+            headGroup.position.y = 0.95;
+
+            const headGeo = new THREE.SphereGeometry(0.48, 24, 24);
+            const head = new THREE.Mesh(headGeo, skinMat);
+            headGroup.add(head);
+
+            const hairGeo = new THREE.SphereGeometry(0.49, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.55);
+            const hairMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.3 });
+            hairMat.name = "hairMat";
+            const hair = new THREE.Mesh(hairGeo, hairMat);
+            hair.rotation.x = -0.15;
+            headGroup.add(hair);
+
+            const eyeGeo = new THREE.SphereGeometry(0.06, 12, 12);
+            const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+            leftEye.position.set(-0.16, 0.04, 0.43);
+            headGroup.add(leftEye);
+
+            const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+            rightEye.position.set(0.16, 0.04, 0.43);
+            headGroup.add(rightEye);
+
+            const cheekGeo = new THREE.SphereGeometry(0.06, 12, 12);
+            const leftCheek = new THREE.Mesh(cheekGeo, cheekMat);
+            leftCheek.position.set(-0.24, -0.08, 0.4);
+            headGroup.add(leftCheek);
+
+            const rightCheek = new THREE.Mesh(cheekGeo, cheekMat);
+            rightCheek.position.set(0.24, -0.08, 0.4);
+            headGroup.add(rightCheek);
+
+            group.add(headGroup);
+
+            // 2. Body
+            const bodyGeo = new THREE.CylinderGeometry(0.26, 0.3, 0.45, 16);
+            const body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.position.y = 0.45;
+            group.add(body);
+
+            // 3. Arms
+            const armGeo = new THREE.SphereGeometry(0.1, 12, 12);
+            armGeo.scale(0.9, 1.8, 0.9);
+
+            const leftArm = new THREE.Mesh(armGeo, bodyMat);
+            leftArm.name = "leftArm";
+            leftArm.position.set(-0.32, 0.45, 0);
+            group.add(leftArm);
+
+            const rightArm = new THREE.Mesh(armGeo, bodyMat);
+            rightArm.name = "rightArm";
+            rightArm.position.set(0.32, 0.45, 0);
+            group.add(rightArm);
+
+            // 4. Legs
+            const legGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.28, 12);
+            
+            const leftLeg = new THREE.Mesh(legGeo, skinMat);
+            leftLeg.name = "leftLeg";
+            leftLeg.position.set(-0.14, 0.14, 0);
+            group.add(leftLeg);
+
+            const rightLeg = new THREE.Mesh(legGeo, skinMat);
+            rightLeg.name = "rightLeg";
+            rightLeg.position.set(0.14, 0.14, 0);
+            group.add(rightLeg);
+
+            return group;
+        }
+
+        // Initialize Three.js Engine
+        function initEngine() {
+            const container = document.getElementById('game-container');
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a051b);
+            scene.fog = new THREE.FogExp2(0x0a051b, 0.015);
+
+            camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 1000);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(20, 40, 20);
+            dirLight.castShadow = true;
+            scene.add(dirLight);
+
+            // Water Floor
+            const waterGeo = new THREE.PlaneGeometry(100, 300);
+            const waterMat = new THREE.MeshStandardMaterial({
+                color: 0x0066cc,
+                roughness: 0.1,
+                metalness: 0.8
+            });
+            const water = new THREE.Mesh(waterGeo, waterMat);
+            water.rotation.x = -Math.PI / 2;
+            water.position.set(0, -1, 100);
+            scene.add(water);
+
+            // Create Character Meshes
+            playerMesh = createCharacterMesh(selectedPlayerColor, true);
+            scene.add(playerMesh);
+
+            rivalMesh = createCharacterMesh(0xff3355, false);
+            scene.add(rivalMesh);
+
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function onWindowResize() {
+            const container = document.getElementById('game-container');
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        // Build Stage Platforms & Obstacles
+        function buildStage() {
+            if (stageGroup) scene.remove(stageGroup);
+
+            stageGroup = new THREE.Group();
+            dynamicObstacles = [];
+            animatedSwings = [];
+
+            stageLength = 90 + (currentLevel - 1) * 20;
+
+            const matBlue = new THREE.MeshStandardMaterial({ color: 0x1e88e5, roughness: 0.3 });
+            const matPurple = new THREE.MeshStandardMaterial({ color: 0x8e24aa, roughness: 0.3 });
+            const matRed = new THREE.MeshStandardMaterial({ color: 0xe53935, roughness: 0.3 });
+            const matWhite = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, roughness: 0.3 });
+            const matGold = new THREE.MeshStandardMaterial({ color: 0xffb300, roughness: 0.2 });
+            const matBone = new THREE.MeshStandardMaterial({ color: 0x00e5ff, roughness: 0.2, metalness: 0.5 });
+
+            function addPlatform(x, y, z, w, h, d, mat) {
+                const geo = new THREE.BoxGeometry(w, h, d);
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(x, y, z);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                stageGroup.add(mesh);
+
+                dynamicObstacles.push({
+                    type: 'solid',
+                    bounds: {
+                        minX: x - w / 2,
+                        maxX: x + w / 2,
+                        minZ: z - d / 2,
+                        maxZ: z + d / 2,
+                        topY: y + h / 2
+                    }
+                });
+            }
+
+            // 1. Start Platform
+            addPlatform(0, 0, 5, 8, 1, 12, matBlue);
+
+            // 2. Red & White Step Pads
+            for (let i = 0; i < 6; i++) {
+                const mat = (i % 2 === 0) ? matRed : matWhite;
+                addPlatform(0, 0, 15 + i * 4, 6, 1, 3.2, mat);
+            }
+
+            // 3. Middle Platform (Before Fish Bone)
+            addPlatform(0, 0, 42, 8, 1, 6, matBlue);
+
+            // 4. SASUKE "Fish Bone Reverse" Zone
+            // Connected continuous floor with narrower width to remove side margin (width reduced from 7 to 4)
+            addPlatform(0, 0, 62.5, 4, 1, 31, matBlue);
+
+            for (let i = 0; i < 4; i++) {
+                const zPos = 50 + i * 7;
+                // Central vertical post
+                const pillarGeo = new THREE.CylinderGeometry(0.2, 0.2, 4, 16);
+                const pillar = new THREE.Mesh(pillarGeo, matPurple);
+                pillar.position.set(0, 2, zPos);
+                stageGroup.add(pillar);
+
+                // Horizontal fish bone arms (Reverse design)
+                const boneGroup = new THREE.Group();
+                boneGroup.position.set(0, 1.5, zPos);
+
+                const armLength = 3.6;
+                const armGeo = new THREE.BoxGeometry(armLength, 0.25, 0.35);
+                
+                // Main arm cross
+                const arm1 = new THREE.Mesh(armGeo, matBone);
+                boneGroup.add(arm1);
+
+                const arm2 = new THREE.Mesh(armGeo, matBone);
+                arm2.rotation.y = Math.PI / 2;
+                boneGroup.add(arm2);
+
+                stageGroup.add(boneGroup);
+
+                // Add to animated swing list for update loop & collisions
+                animatedSwings.push({
+                    group: boneGroup,
+                    center: { x: 0, z: zPos },
+                    speed: (i % 2 === 0 ? 1 : -1) * (1.6 + currentLevel * 0.2),
+                    armLength: armLength
+                });
+            }
+
+            // 5. Final Straight & Goal
+            addPlatform(0, 0, 83, 6, 1, 10, matPurple);
+
+            // Goal Arch & Flag
+            const goalGeo = new THREE.BoxGeometry(7, 4, 0.5);
+            const goalMesh = new THREE.Mesh(goalGeo, matGold);
+            goalMesh.position.set(0, 2, stageLength);
+            stageGroup.add(goalMesh);
+
+            scene.add(stageGroup);
+        }
+
+        // Setup Joystick and Touch Input
+        function setupJoystick() {
+            const joystickZone = document.getElementById('joystick-zone');
+            const stick = document.getElementById('joystick-stick');
+            let touchId = null;
+            let center = { x: 0, y: 0 };
+
+            function handleStart(e) {
+                const touch = e.changedTouches ? e.changedTouches[0] : e;
+                touchId = touch.identifier !== undefined ? touch.identifier : 'mouse';
+                const rect = joystickZone.getBoundingClientRect();
+                center = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+                handleMove(e);
+            }
+
+            function handleMove(e) {
+                if (touchId === null) return;
+                let touch = null;
+                if (e.changedTouches) {
+                    for (let t of e.changedTouches) {
+                        if (t.identifier === touchId) { touch = t; break; }
+                    }
+                } else {
+                    touch = e;
+                }
+                if (!touch) return;
+
+                const dx = touch.clientX - center.x;
+                const dy = touch.clientY - center.y;
+                const dist = Math.hypot(dx, dy);
+                const maxDist = 45;
+
+                const angle = Math.atan2(dy, dx);
+                const clampedDist = Math.min(dist, maxDist);
+
+                const moveX = Math.cos(angle) * clampedDist;
+                const moveY = Math.sin(angle) * clampedDist;
+
+                stick.style.transform = `translate(${moveX}px, ${moveY}px)`;
+
+                // Map Joystick Inputs: Stick Left -> Move Left (-X), Stick Right -> Move Right (+X)
+                input.moveX = moveX / maxDist;
+                input.moveZ = -moveY / maxDist;
+                input.length = Math.min(dist / maxDist, 1);
+            }
+
+            function handleEnd(e) {
+                if (touchId === null) return;
+                stick.style.transform = 'translate(0px, 0px)';
+                input.moveX = 0;
+                input.moveZ = 0;
+                input.length = 0;
+                touchId = null;
+            }
+
+            joystickZone.addEventListener('touchstart', handleStart, { passive: false });
+            window.addEventListener('touchmove', handleMove, { passive: false });
+            window.addEventListener('touchend', handleEnd, { passive: false });
+
+            joystickZone.addEventListener('mousedown', handleStart);
+            window.addEventListener('mousemove', handleMove);
+            window.addEventListener('mouseup', handleEnd);
+
+            // Keyboard listeners (PC fallback)
+            window.addEventListener('keydown', (e) => {
+                keys[e.key] = true;
+                if (e.code === 'Space') doJump();
+            });
+            window.addEventListener('keyup', (e) => {
+                keys[e.key] = false;
+            });
+
+            document.getElementById('btn-jump').addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                doJump();
+            });
+        }
+
+        function doJump() {
+            if (isGrounded && isPlaying && !isGameOver && knockbackTimer <= 0) {
+                playerVel.y = 0.22;
+                isGrounded = false;
+                audio.playJump();
+            }
+        }
+
+        // Color Picker Binding
+        function setupColorPicker() {
+            const btns = document.querySelectorAll('.color-select-btn');
+            btns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    btns.forEach(b => b.classList.remove('scale-110', 'border-white'));
+                    btn.classList.add('scale-110', 'border-white');
+                    const colorVal = parseInt(btn.dataset.color, 16);
+                    setPlayerColor(colorVal);
+                });
+            });
+        }
+
+        function setPlayerColor(colorHex) {
+            selectedPlayerColor = colorHex;
+            if (playerMesh) {
+                playerMesh.traverse((child) => {
+                    if (child.isMesh && (child.material.name === 'bodyMat' || child.material.name === 'hairMat')) {
+                        child.material.color.setHex(colorHex);
+                    }
+                });
+            }
+        }
+
+        function respawnAtCheckpoint() {
+            audio.playSplash();
+            playerPos.x = lastCheckpoint.x;
+            playerPos.y = lastCheckpoint.y + 0.5;
+            playerPos.z = lastCheckpoint.z;
+            playerVel = { x: 0, y: 0, z: 0 };
+            knockbackTimer = 0;
+
+            const toast = document.getElementById('respawn-toast');
+            toast.classList.remove('opacity-0', 'scale-90');
+            toast.classList.add('opacity-100', 'scale-100');
+            setTimeout(() => {
+                toast.classList.remove('opacity-100', 'scale-100');
+                toast.classList.add('opacity-0', 'scale-90');
+            }, 1200);
+        }
+
+        function startGame() {
+            audio.init();
+            isPlaying = true;
+            isGameOver = false;
+            timeRemaining = 60;
+            playerPos = { x: 0, y: 1.2, z: 0 };
+            rivalPos = { x: -1.2, y: 1.2, z: 0 };
+            playerVel = { x: 0, y: 0, z: 0 };
+            lastCheckpoint = { x: 0, y: 1.2, z: 0 };
+
+            document.getElementById('start-modal').classList.add('hidden');
+            document.getElementById('result-modal').classList.add('hidden');
+            document.getElementById('level-display').innerText = currentLevel;
+
+            buildStage();
+        }
+
+        function resetGame() {
+            currentLevel = 1;
+            startGame();
+        }
+
+        // Game State Update Loop
+        function updateGame(delta) {
+            if (!isPlaying || isGameOver) return;
+
+            // Update Timer
+            timeRemaining -= delta;
+            if (timeRemaining <= 0) {
+                timeRemaining = 0;
+                endGame(false, 'タイムアップ！時間切れです');
+            }
+            document.getElementById('timer-display').innerText = timeRemaining.toFixed(1);
+
+            // 1. Process Keyboard / Joystick Inputs
+            let moveX = input.moveX;
+            let moveZ = input.moveZ;
+
+            if (keys['ArrowRight'] || keys['d'] || keys['D']) moveX = 1;
+            if (keys['ArrowLeft'] || keys['a'] || keys['A']) moveX = -1;
+            if (keys['ArrowUp'] || keys['w'] || keys['W']) moveZ = 1;
+            if (keys['ArrowDown'] || keys['s'] || keys['S']) moveZ = -1;
+
+            const speed = 0.16;
+
+            if (knockbackTimer > 0) {
+                knockbackTimer -= delta;
+            } else {
+                // 移動入力（地上・空中ジャンプ中問わずスムーズに移動可能に完全に修復）
+                playerVel.x = moveX * speed;
+                playerVel.z = moveZ * speed;
+            }
+
+            // Apply Gravity
+            playerVel.y -= 0.012;
+
+            playerPos.x += playerVel.x;
+            playerPos.y += playerVel.y;
+            playerPos.z += playerVel.z;
+
+            // 2. Collision with Solid Platforms
+            isGrounded = false;
+            for (let obs of dynamicObstacles) {
+                if (obs.type === 'solid') {
+                    const b = obs.bounds;
+                    if (playerPos.x >= b.minX - 0.3 && playerPos.x <= b.maxX + 0.3 &&
+                        playerPos.z >= b.minZ - 0.3 && playerPos.z <= b.maxZ + 0.3) {
+                        // 着地判定
+                        if (playerPos.y <= b.topY + 0.4 && playerPos.y >= b.topY - 0.5 && playerVel.y <= 0) {
+                            playerPos.y = b.topY + 0.4;
+                            playerVel.y = 0;
+                            isGrounded = true;
+
+                            // Update checkpoint to safe platform before Fishbone zone
+                            if (playerPos.z < 47) {
+                                lastCheckpoint = { x: 0, y: 1.2, z: playerPos.z };
+                            } else {
+                                // Keep checkpoint at the platform right before Fishbone
+                                lastCheckpoint = { x: 0, y: 1.2, z: 42 };
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. SASUKE Fishbone Rotating Arms Collision & Knockback
+            animatedSwings.forEach(swing => {
+                swing.group.rotation.y += swing.speed * delta;
+
+                // Check collision if player is in Fishbone height & Z-range
+                const distZ = Math.abs(playerPos.z - swing.center.z);
+                if (distZ < 0.8 && playerPos.y < 2.5 && knockbackTimer <= 0) {
+                    const relX = playerPos.x - swing.center.x;
+                    const angle = swing.group.rotation.y;
+                    
+                    // Transform to arm local coordinate space
+                    const localX = relX * Math.cos(-angle) - (playerPos.z - swing.center.z) * Math.sin(-angle);
+                    const localZ = relX * Math.sin(-angle) + (playerPos.z - swing.center.z) * Math.cos(-angle);
+
+                    // Box hit detection on horizontal arms
+                    const armHalfWidth = swing.armLength / 2;
+                    if ((Math.abs(localX) < armHalfWidth || Math.abs(localZ) < armHalfWidth) && Math.abs(localX) < 1.8 && Math.abs(localZ) < 1.8) {
+                        // Knockback force calculation
+                        const knockDirX = playerPos.x >= 0 ? 1 : -1;
+                        playerVel.x = knockDirX * 0.35;
+                        playerVel.z = -0.15;
+                        playerVel.y = 0.22;
+                        knockbackTimer = 0.6; // Lock controls briefly during knockback
+                        audio.playFail();
+                    }
+                }
+            });
+
+            // 4. Fall Out / Respawn Logic
+            if (playerPos.y < -3) {
+                respawnAtCheckpoint();
+            }
+
+            // 5. Update AI Rival Movement
+            if (rivalPos.z < stageLength - 2) {
+                rivalPos.z += (0.08 + currentLevel * 0.015);
+            }
+            rivalPos.y = 1.2;
+
+            // 6. Update Character Mesh Positions
+            playerMesh.position.set(playerPos.x, playerPos.y, playerPos.z);
+            rivalMesh.position.set(rivalPos.x, rivalPos.y, rivalPos.z);
+
+            // Character animation (limb swinging when moving)
+            const isMoving = Math.abs(playerVel.x) > 0.01 || Math.abs(playerVel.z) > 0.01;
+            const animTime = Date.now() * 0.012;
+            
+            const leftArm = playerMesh.getObjectByName('leftArm');
+            const rightArm = playerMesh.getObjectByName('rightArm');
+            const leftLeg = playerMesh.getObjectByName('leftLeg');
+            const rightLeg = playerMesh.getObjectByName('rightLeg');
+
+            if (leftArm && rightArm && leftLeg && rightLeg) {
+                if (isMoving) {
+                    leftArm.rotation.x = Math.sin(animTime) * 0.6;
+                    rightArm.rotation.x = -Math.sin(animTime) * 0.6;
+                    leftLeg.rotation.x = -Math.sin(animTime) * 0.6;
+                    rightLeg.rotation.x = Math.sin(animTime) * 0.6;
+                } else {
+                    leftArm.rotation.x = 0;
+                    rightArm.rotation.x = 0;
+                    leftLeg.rotation.x = 0;
+                    rightLeg.rotation.x = 0;
+                }
+            }
+
+            // Character rotation towards movement direction
+            if (isMoving) {
+                const targetAngle = Math.atan2(playerVel.x, playerVel.z);
+                playerMesh.rotation.y = targetAngle;
+            }
+
+            // Smooth Camera Follow
+            camera.position.x = playerPos.x * 0.3;
+            camera.position.y = playerPos.y + 4.5;
+            camera.position.z = playerPos.z - 7.5;
+            camera.lookAt(playerPos.x * 0.3, playerPos.y + 1.0, playerPos.z + 4);
+
+            // 7. Update HUD Progress Bar
+            const playerProgress = Math.min(Math.max((playerPos.z / stageLength) * 100, 0), 100);
+            const rivalProgress = Math.min(Math.max((rivalPos.z / stageLength) * 100, 0), 100);
+
+            document.getElementById('progress-fill').style.width = `${playerProgress}%`;
+            document.getElementById('player-marker').style.left = `calc(${playerProgress}% - 10px)`;
+            document.getElementById('rival-marker').style.left = `calc(${rivalProgress}% - 10px)`;
+
+            // 8. Goal Condition
+            if (playerPos.z >= stageLength) {
+                endGame(true);
+            }
+        }
+
+        function endGame(isWin, reason = '') {
+            isPlaying = false;
+            isGameOver = true;
+
+            const modal = document.getElementById('result-modal');
+            const winContent = document.getElementById('win-content');
+            const failContent = document.getElementById('fail-content');
+
+            modal.classList.remove('hidden');
+
+            if (isWin) {
+                winContent.classList.remove('hidden');
+                winContent.classList.add('flex');
+                failContent.classList.add('hidden');
+                failContent.classList.remove('flex');
+
+                const timeSpent = (60 - timeRemaining).toFixed(1);
+                document.getElementById('clear-time-text').innerText = `TIME: ${timeSpent}s`;
+                audio.playWin();
+            } else {
+                failContent.classList.remove('hidden');
+                failContent.classList.add('flex');
+                winContent.classList.add('hidden');
+                winContent.classList.remove('flex');
+
+                document.getElementById('fail-reason-text').innerText = reason;
+                audio.playFail();
+            }
+        }
+
+        // Animation Loop
+        let lastTime = performance.now();
+        function animate() {
+            requestAnimationFrame(animate);
+            const now = performance.now();
+            const delta = Math.min((now - lastTime) / 1000, 0.1);
+            lastTime = now;
+
+            updateGame(delta);
+            if (renderer && scene && camera) {
+                renderer.render(scene, camera);
+            }
+        }
+
+        // Window Load Initialization
+        window.onload = function() {
+            initEngine();
+            setupJoystick();
+            setupColorPicker();
+
+            document.getElementById('btn-start').addEventListener('click', () => {
+                startGame();
+            });
+
+            document.getElementById('btn-next').addEventListener('click', () => {
+                currentLevel++;
+                startGame();
+            });
+
+            document.getElementById('btn-retry').addEventListener('click', () => {
+                startGame();
+            });
+
+            animate();
+        };
+    </script>
+</body>
+</html>
