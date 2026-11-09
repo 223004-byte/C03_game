@@ -563,7 +563,9 @@
             }
 
             // 5. Final Straight & Goal
-            addPlatform(0, 0, 83, 6, 1, 10, matPurple);
+            const finalStart = 78;
+            const finalEnd = stageLength + 2;
+            addPlatform(0, 0, (finalStart + finalEnd) / 2, 6, 1, finalEnd - finalStart, matPurple);
 
             // Goal Arch & Flag
             const goalGeo = new THREE.BoxGeometry(7, 4, 0.5);
@@ -582,10 +584,12 @@
             let center = { x: 0, y: 0 };
 
             function handleStart(e) {
+                if (touchId !== null) return;
                 const touch = e.changedTouches ? e.changedTouches[0] : e;
                 touchId = touch.identifier !== undefined ? touch.identifier : 'mouse';
                 const rect = joystickZone.getBoundingClientRect();
                 center = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+                if (e.cancelable) e.preventDefault();
                 handleMove(e);
             }
 
@@ -596,7 +600,7 @@
                     for (let t of e.changedTouches) {
                         if (t.identifier === touchId) { touch = t; break; }
                     }
-                } else {
+                } else if (touchId === 'mouse') {
                     touch = e;
                 }
                 if (!touch) return;
@@ -614,14 +618,16 @@
 
                 stick.style.transform = `translate(${moveX}px, ${moveY}px)`;
 
-                // Map Joystick Inputs: Stick Left -> Move Left (-X), Stick Right -> Move Right (+X)
-                input.moveX = moveX / maxDist;
+                // The camera faces +Z, so screen right corresponds to world -X.
+                input.moveX = -moveX / maxDist;
                 input.moveZ = -moveY / maxDist;
                 input.length = Math.min(dist / maxDist, 1);
             }
 
             function handleEnd(e) {
                 if (touchId === null) return;
+                if (e.changedTouches && !Array.from(e.changedTouches).some(t => t.identifier === touchId)) return;
+                if (!e.changedTouches && e.type !== 'blur' && touchId !== 'mouse') return;
                 stick.style.transform = 'translate(0px, 0px)';
                 input.moveX = 0;
                 input.moveZ = 0;
@@ -632,10 +638,15 @@
             joystickZone.addEventListener('touchstart', handleStart, { passive: false });
             window.addEventListener('touchmove', handleMove, { passive: false });
             window.addEventListener('touchend', handleEnd, { passive: false });
+            window.addEventListener('touchcancel', handleEnd, { passive: false });
 
             joystickZone.addEventListener('mousedown', handleStart);
             window.addEventListener('mousemove', handleMove);
             window.addEventListener('mouseup', handleEnd);
+            window.addEventListener('blur', (e) => {
+                handleEnd(e);
+                keys = {};
+            });
 
             // Keyboard listeners (PC fallback)
             window.addEventListener('keydown', (e) => {
@@ -691,6 +702,7 @@
             playerPos.z = lastCheckpoint.z;
             playerVel = { x: 0, y: 0, z: 0 };
             knockbackTimer = 0;
+            isGrounded = false;
 
             const toast = document.getElementById('respawn-toast');
             toast.classList.remove('opacity-0', 'scale-90');
@@ -710,6 +722,8 @@
             rivalPos = { x: -1.2, y: 1.2, z: 0 };
             playerVel = { x: 0, y: 0, z: 0 };
             lastCheckpoint = { x: 0, y: 1.2, z: 0 };
+            knockbackTimer = 0;
+            isGrounded = false;
 
             document.getElementById('start-modal').classList.add('hidden');
             document.getElementById('result-modal').classList.add('hidden');
@@ -739,8 +753,8 @@
             let moveX = input.moveX;
             let moveZ = input.moveZ;
 
-            if (keys['ArrowRight'] || keys['d'] || keys['D']) moveX = 1;
-            if (keys['ArrowLeft'] || keys['a'] || keys['A']) moveX = -1;
+            if (keys['ArrowRight'] || keys['d'] || keys['D']) moveX = -1;
+            if (keys['ArrowLeft'] || keys['a'] || keys['A']) moveX = 1;
             if (keys['ArrowUp'] || keys['w'] || keys['W']) moveZ = 1;
             if (keys['ArrowDown'] || keys['s'] || keys['S']) moveZ = -1;
 
@@ -790,25 +804,27 @@
             animatedSwings.forEach(swing => {
                 swing.group.rotation.y += swing.speed * delta;
 
-                // Check collision if player is in Fishbone height & Z-range
-                const distZ = Math.abs(playerPos.z - swing.center.z);
-                if (distZ < 0.8 && playerPos.y < 2.5 && knockbackTimer <= 0) {
+                // The character origin is at its feet; its head reaches about 1.43 units above them.
+                if (playerPos.y < 1.625 && playerPos.y + 1.43 > 1.375 && knockbackTimer <= 0) {
                     const relX = playerPos.x - swing.center.x;
+                    const relZ = playerPos.z - swing.center.z;
                     const angle = swing.group.rotation.y;
                     
-                    // Transform to arm local coordinate space
-                    const localX = relX * Math.cos(-angle) - (playerPos.z - swing.center.z) * Math.sin(-angle);
-                    const localZ = relX * Math.sin(-angle) + (playerPos.z - swing.center.z) * Math.cos(-angle);
+                    // Transform from world coordinates into the rotating arms' coordinates.
+                    const localX = relX * Math.cos(angle) - relZ * Math.sin(angle);
+                    const localZ = relX * Math.sin(angle) + relZ * Math.cos(angle);
 
                     // Box hit detection on horizontal arms
-                    const armHalfWidth = swing.armLength / 2;
-                    if ((Math.abs(localX) < armHalfWidth || Math.abs(localZ) < armHalfWidth) && Math.abs(localX) < 1.8 && Math.abs(localZ) < 1.8) {
+                    const armHalfLength = swing.armLength / 2 + 0.3;
+                    const armHalfThickness = 0.35 / 2 + 0.3;
+                    if ((Math.abs(localX) < armHalfLength && Math.abs(localZ) < armHalfThickness) ||
+                        (Math.abs(localZ) < armHalfLength && Math.abs(localX) < armHalfThickness)) {
                         // Knockback force calculation
                         const knockDirX = playerPos.x >= 0 ? 1 : -1;
-                        playerVel.x = knockDirX * 0.35;
-                        playerVel.z = -0.15;
+                        playerVel.x = knockDirX * 0.12;
+                        playerVel.z = -0.08;
                         playerVel.y = 0.22;
-                        knockbackTimer = 0.6; // Lock controls briefly during knockback
+                        knockbackTimer = 0.25; // Lock controls briefly during knockback
                         audio.playFail();
                     }
                 }
@@ -910,13 +926,19 @@
 
         // Animation Loop
         let lastTime = performance.now();
+        let accumulatedTime = 0;
+        const simulationStep = 1 / 60;
         function animate() {
             requestAnimationFrame(animate);
             const now = performance.now();
             const delta = Math.min((now - lastTime) / 1000, 0.1);
             lastTime = now;
 
-            updateGame(delta);
+            accumulatedTime += delta;
+            while (accumulatedTime >= simulationStep) {
+                updateGame(simulationStep);
+                accumulatedTime -= simulationStep;
+            }
             if (renderer && scene && camera) {
                 renderer.render(scene, camera);
             }
