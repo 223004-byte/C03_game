@@ -728,12 +728,12 @@
             if (!isPlaying || isGameOver) return;
 
             // Update Timer
-            timeRemaining -= delta;
-            if (timeRemaining <= 0) {
-                timeRemaining = 0;
-                endGame(false, 'タイムアップ！時間切れです');
-            }
+            timeRemaining = Math.max(0, timeRemaining - delta);
             document.getElementById('timer-display').innerText = timeRemaining.toFixed(1);
+            if (timeRemaining <= 0) {
+                endGame(false, 'タイムアップ！時間切れです');
+                return;
+            }
 
             // 1. Process Keyboard / Joystick Inputs
             let moveX = input.moveX;
