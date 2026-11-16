@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Epic Race 3D</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; touch-action: none; font-family: 'Inter', sans-serif; background-color: #87CEEB; }
+        #canvas-container { width: 100vw; height: 100vh; display: block; }
+        
+        /* Joystick */
+        #joystick-zone { position: absolute; bottom: 30px; left: 30px; width: 140px; height: 140px; background: rgba(255,255,255,0.3); border-radius: 50%; display: flex; justify-content: center; align-items: center; border: 2px solid rgba(255,255,255,0.5); }
+        #joystick-knob { width: 60px; height: 60px; background: rgba(255,255,255,0.8); border-radius: 50%; box-shadow: 0 4px 6px rgba(0,0,0,0.2); pointer-events: none; }
+        
+        /* Jump Button */
+        #jump-btn { position: absolute; bottom: 50px; right: 40px; width: 90px; height: 90px; background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%); border-radius: 50%; border: 4px solid white; box-shadow: 0 6px 12px rgba(0,0,0,0.3); display: flex; justify-content: center; align-items: center; font-weight: 900; color: #ff1493; font-size: 20px; user-select: none; transition: transform 0.1s; }
+        #jump-btn:active { transform: scale(0.9); }
+
+        /* Timer (Top Right, Cute Pink) */
+        #timer-ui { position: absolute; top: 20px; right: 20px; background-color: #ffb6c1; color: white; padding: 10px 25px; border-radius: 30px; font-weight: 900; font-size: 28px; box-shadow: 0 4px 8px rgba(255,105,180,0.4); border: 3px solid #ff69b4; display: flex; gap: 8px; align-items: center; }
+        
+        .damage-flash { animation: flash 0.3s; }
+        @keyframes flash {
+            0% { background-color: rgba(255,0,0,0); }
+            50% { background-color: rgba(255,0,0,0.4); }
+            100% { background-color: rgba(255,0,0,0); }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+
+    <!-- UI Layer -->
+    <div id="ui-layer" class="absolute inset-0 pointer-events-none flex flex-col">
+        
+        <!-- Timer -->
+        <div id="timer-wrapper" class="hidden pointer-events-auto">
+            <div id="timer-ui">
+                ⏱ <span id="timer-text">50</span>
+            </div>
+        </div>
+
+        <!-- Game Controls -->
+        <div id="game-controls" class="hidden pointer-events-auto">
+            <div id="joystick-zone">
+                <div id="joystick-knob"></div>
+            </div>
+            <div id="jump-btn">JUMP!</div>
+        </div>
+
+        <!-- Color Select -->
+        <div id="color-select-ui" class="absolute inset-0 flex flex-col items-center justify-center bg-sky-200/90 backdrop-blur-sm pointer-events-auto">
+            <h1 class="text-5xl font-black text-pink-500 mb-2 drop-shadow-md text-center tracking-wider">Epic Race 3D</h1>
+            <p class="text-gray-600 mb-8 font-bold">キャラクターの色を選んでね！</p>
+            <div class="flex gap-4 flex-wrap justify-center px-4">
+                <button class="w-20 h-20 rounded-full bg-white border-4 border-gray-300 shadow-lg hover:scale-110 transition-transform" onclick="initGame(0xffffff)"></button>
+                <button class="w-20 h-20 rounded-full bg-yellow-300 border-4 border-yellow-400 shadow-lg hover:scale-110 transition-transform" onclick="initGame(0xffe066)"></button>
+                <button class="w-20 h-20 rounded-full bg-pink-400 border-4 border-pink-500 shadow-lg hover:scale-110 transition-transform" onclick="initGame(0xff8da1)"></button>
+                <button class="w-20 h-20 rounded-full bg-blue-400 border-4 border-blue-500 shadow-lg hover:scale-110 transition-transform" onclick="initGame(0x74c0fc)"></button>
+                <button class="w-20 h-20 rounded-full bg-green-400 border-4 border-green-500 shadow-lg hover:scale-110 transition-transform" onclick="initGame(0x69db7c)"></button>
+            </div>
+        </div>
+
+        <!-- Countdown -->
+        <div id="countdown-ui" class="absolute inset-0 flex items-center justify-center hidden pointer-events-none">
+            <span id="countdown-text" class="text-9xl font-black text-white drop-shadow-[0_6px_6px_rgba(255,105,180,0.8)]"></span>
+        </div>
+
+        <!-- Stage Clear -->
+        <div id="clear-ui" class="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm hidden pointer-events-auto">
+            <h2 id="clear-title" class="text-6xl font-black text-yellow-300 mb-8 drop-shadow-lg text-center">STAGE CLEAR!</h2>
+            <button id="next-stage-btn" class="px-10 py-5 bg-pink-500 text-white rounded-full font-bold text-3xl shadow-[0_6px_0_#d81b60] active:shadow-[0_0px_0_#d81b60] active:translate-y-2 transition-all" onclick="handleClearNext()"></button>
+        </div>
+
+        <!-- Game Over (Time Up) -->
+        <div id="gameover-ui" class="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm hidden pointer-events-auto">
+            <h2 class="text-6xl font-black text-red-500 mb-8 drop-shadow-lg text-center">TIME UP...</h2>
+            <button class="px-10 py-5 bg-blue-500 text-white rounded-full font-bold text-3xl shadow-[0_6px_0_#1e88e5] active:shadow-[0_0px_0_#1e88e5] active:translate-y-2 transition-all" onclick="retryStage()">Retry</button>
+        </div>
+        
+        <!-- Damage Overlay -->
+        <div id="damage-overlay" class="absolute inset-0 pointer-events-none"></div>
+    </div>
+
+    <script>
+        // --- Game Variables ---
+        let scene, camera, renderer, levelGroup;
+        let player, playerBox;
+        let selectedColor = 0xffffff;
+        let currentStage = 1;
+        let gameState = 'SELECT'; // SELECT, COUNTDOWN, PLAYING, GOAL, GAMEOVER
+        
+        let trackSegments = [];
+        let obstacles = [];
+        let goalZ = 0;
+        let podiumPos = {x:0, y:0, z:0};
+        let currentCheckPoint = {x:0, y:0, z:0}; // 落下時の復帰地点
+        let knockbackVelocity = {x:0, z:0}; // 弾き飛ばされる速度
+
+        // Celebration Animation State
+        let goalTime = 0;
+
+        // Movement & Physics
+        let joyVector = { x: 0, y: 0 };
+        let isJumping = false;
+        let velocityY = 0;
+        const speed = 0.25;
+        const jumpForce = 0.45;
+        const gravity = -0.025;
+
+        // Timer
+        let timeLimit = 50;
+        let startTime = 0;
+        let remainingTime = 50;
+
+        // Key controls
+        const keys = {};
+
+        // --- Init Three.js ---
+        function initThree() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB); // 空色
+            scene.fog = new THREE.Fog(0x87CEEB, 20, 100);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            // Lights
+            const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambient);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            dirLight.position.set(20, 40, 20);
+            dirLight.castShadow = true;
+            dirLight.shadow.camera.left = -30;
+            dirLight.shadow.camera.right = 30;
+            dirLight.shadow.camera.top = 30;
+            dirLight.shadow.camera.bottom = -30;
+            scene.add(dirLight);
+
+            levelGroup = new THREE.Group();
+            scene.add(levelGroup);
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            setupControls();
+            requestAnimationFrame(animate);
+        }
+
+        // --- Player Creation ---
+        function createPlayer(colorHex) {
+            const group = new THREE.Group();
+            const mat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.4 });
+            
+            // 頭
+            const headGeo = new THREE.SphereGeometry(0.55, 32, 32);
+            const head = new THREE.Mesh(headGeo, mat);
+            head.position.y = 1.0;
+            head.castShadow = true;
+            group.add(head);
+            
+            // 体
+            const bodyGeo = new THREE.SphereGeometry(0.45, 32, 32);
+            const body = new THREE.Mesh(bodyGeo, mat);
+            body.position.y = 0.45;
+            body.castShadow = true;
+            group.add(body);
+
+            // 手
+            const handGeo = new THREE.SphereGeometry(0.15, 16, 16);
+            const handR = new THREE.Mesh(handGeo, mat);
+            handR.name = "handR";
+            handR.position.set(0.5, 0.5, 0);
+            handR.castShadow = true;
+            const handL = new THREE.Mesh(handGeo, mat);
+            handL.name = "handL";
+            handL.position.set(-0.5, 0.5, 0);
+            handL.castShadow = true;
+            group.add(handR);
+            group.add(handL);
+
+            // 足
+            const footGeo = new THREE.SphereGeometry(0.18, 16, 16);
+            const footR = new THREE.Mesh(footGeo, mat);
+            footR.name = "footR";
+            footR.position.set(0.2, 0.15, 0);
+            footR.castShadow = true;
+            const footL = new THREE.Mesh(footGeo, mat);
+            footL.name = "footL";
+            footL.position.set(-0.2, 0.15, 0);
+            footL.castShadow = true;
+            group.add(footR);
+            group.add(footL);
+            
+            // 目（-Z方向を向く）
+            const eyeGeo = new THREE.SphereGeometry(0.08, 16, 16);
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
+            const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
+            eyeR.position.set(0.2, 1.1, -0.48);
+            const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
+            eyeL.position.set(-0.2, 1.1, -0.48);
+            group.add(eyeR);
+            group.add(eyeL);
+            
+            playerBox = new THREE.Box3();
+            return group;
+        }
+
+        // --- Stage Builders ---
+        function clearLevel() {
+            scene.remove(levelGroup);
+            levelGroup = new THREE.Group();
+            scene.add(levelGroup);
+            trackSegments = [];
+            obstacles = [];
+        }
+
+        function buildStage(stageNum) {
+            clearLevel();
+            const floorMat = new THREE.MeshStandardMaterial({ color: 0x8fbc8f, roughness: 0.8 }); // 緑の床
+
+            function addRectFloor(startZ, endZ, width, y, customCheckZ = null) {
+                const depth = startZ - endZ;
+                const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, 1, depth), floorMat);
+                mesh.position.set(0, y - 0.5, (startZ + endZ) / 2);
+                mesh.receiveShadow = true;
+                levelGroup.add(mesh);
+                const cz = customCheckZ !== null ? customCheckZ : startZ - 2;
+                trackSegments.push({ type: 'rect', minX: -width/2, maxX: width/2, maxZ: startZ, minZ: endZ, y: y, checkZ: cz });
+            }
+
+            function addRoundFloor(z, y, radius) {
+                const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 1, 32), floorMat);
+                mesh.position.set(0, y - 0.5, z);
+                mesh.receiveShadow = true;
+                levelGroup.add(mesh);
+                trackSegments.push({ type: 'round', x: 0, z: z, radius: radius, y: y, checkZ: z });
+            }
+
+            // 動く丸い足場（移動床）
+            function addMovingPlatform(z, y, radius, moveDist = 4, speed = 0.02, customCheckZ = null) {
+                const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 1, 32), new THREE.MeshStandardMaterial({ color: 0xffa500, roughness: 0.5 }));
+                mesh.position.set(0, y - 0.5, z);
+                mesh.receiveShadow = true;
+                levelGroup.add(mesh);
+                
+                const cz = customCheckZ !== null ? customCheckZ : z;
+                const segment = { type: 'moving', mesh: mesh, baseZ: z, radius: radius, y: y, checkZ: cz, moveDist: moveDist, speed: speed, offset: Math.random() * Math.PI * 2 };
+                trackSegments.push(segment);
+            }
+
+            if (stageNum === 1) {
+                timeLimit = 50;
+                
+                // Start〜フィッシュボーン下まで（1つ目のフィッシュボーン：従来どおり）
+                addRectFloor(10, -8, 10, 0); 
+                createFishbone(-4, 0);
+                
+                // フィッシュボーン後
+                addRectFloor(-8, -15, 10, 0, -11); 
+                
+                // ふりこエリア前半（スピードを2.5→1.2に低減）
+                addRectFloor(-19, -56, 4, 0, -11);
+                createPendulum(-30, 1.2, 0);
+                createPendulum(-45, 1.2, Math.PI);
+                
+                // ふりこエリア後半
+                addRectFloor(-56, -63, 4, 0, -58);
+                
+                // 2つ目の島：着地エリア
+                addRectFloor(-68, -74, 10, 0, -58);
+                
+                // 2つ目の島：最後のエリアのフィッシュボーン（2つ目：横向き平行回転）
+                addRectFloor(-74, -88, 10, 0, -71);
+                createFishbone(-78, 0, 0.04, 4, true, false, true);
+                
+                // ゴールエリア
+                addRectFloor(-93, -118, 10, 0);
+                createGoal(-103, 0);
+
+            } else if (stageNum === 2) {
+                timeLimit = 70;
+                
+                addRectFloor(10, -5, 10, 0); // Start
+                
+                // 丸い床ジャンプ
+                addRoundFloor(-15, 0, 2.5);
+                addRoundFloor(-25, 0, 2.5);
+                addRoundFloor(-35, 0, 2.5);
+                
+                // 細い丸太の一本橋（ふりこのスピードを2.8/3.0→1.2/1.4に低減）
+                addRectFloor(-45, -75, 1.5, 0); 
+                createPendulum(-55, 1.2, 0);
+                createPendulum(-65, 1.2, Math.PI);
+                
+                // 高い階段
+                addRectFloor(-80, -85, 10, 2);
+                addRectFloor(-88, -93, 10, 4);
+                addRectFloor(-96, -105, 10, 6); // 頂上
+                createPendulum(-100, 1.4, 0, 6);
+                
+                // 降りてスイーパー（一本の棒）
+                addRectFloor(-112, -145, 10, 0);
+                createSweeper(-122, 0.025, 0);
+                createSweeper(-132, -0.03, 0);
+                
+                // 左右に移動する空中ステップ（一定の周期で常に動き続ける設定）
+                addRectFloor(-145, -150, 10, 0, -147); // ステップの手前の床
+                addMovingPlatform(-160, 0, 2.5, 5, 0.015, -147); 
+                addMovingPlatform(-172, 0, 2.5, 5, -0.015, -147); 
+                
+                // ゴールエリア
+                addRectFloor(-180, -210, 10, 0);
+                createGoal(-195, 0);
+            }
+            
+            if (player) {
+                player.position.set(0, 0, 8);
+                player.rotation.set(0, Math.PI, 0);
+            }
+            currentCheckPoint = { x: 0, y: 0, z: 8 };
+            velocityY = 0;
+            isJumping = false;
+            
+            // カメラ初期化
+            camera.position.set(0, 5, 15);
+        }
+
+        // --- Obstacle Builders ---
+        function createFishbone(z, yOffset = 0, speed = 0.03, boneCount = 4, reverse = false, isVertical = false, isHorizontal = false) {
+            const group = new THREE.Group();
+            
+            if (isHorizontal) {
+                // 2つ目（最後）のフィッシュボーン：SASUKEスタイルのフィッシュボーン
+                group.position.set(0, yOffset + 1.2, z);
+
+                // 中心のメインポール（黒・メタリック）
+                const pillarMat = new THREE.MeshStandardMaterial({color: 0x222222, metalness: 0.8, roughness: 0.2});
+                const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 3.5, 16), pillarMat);
+                pillar.position.y = 0.5;
+                group.add(pillar);
+
+                // 中心軸（横向きの長いポール）
+                const axisGeo = new THREE.CylinderGeometry(0.2, 0.2, 9, 16);
+                const axisMesh = new THREE.Mesh(axisGeo, pillarMat);
+                axisMesh.rotation.x = Math.PI / 2;
+                axisMesh.position.y = 0.5;
+                group.add(axisMesh);
+
+                const bones = [];
+                // SASUKE風の黄色・オレンジ配色のパイプ骨
+                const boneMatYellow = new THREE.MeshStandardMaterial({color: 0xffcc00, roughness: 0.3, metalness: 0.5});
+                const boneMatRed = new THREE.MeshStandardMaterial({color: 0xff3300, roughness: 0.3, metalness: 0.5});
+                
+                // 軸に沿って前後・斜め交互に突き出るトゲ状の骨（SASUKE風構造）
+                const bonePositionsZ = [-3.6, -2.4, -1.2, 0, 1.2, 2.4, 3.6];
+
+                bonePositionsZ.forEach((posZ, idx) => {
+                    const boneGroup = new THREE.Group();
+                    boneGroup.position.set(0, 0.5, posZ);
+
+                    const currentMat = idx % 2 === 0 ? boneMatYellow : boneMatRed;
+                    
+                    // 斜め上に傾いた突き出しポール（左右）
+                    const boneGeo = new THREE.CylinderGeometry(0.12, 0.12, 4.2, 12);
+                    
+                    const boneR = new THREE.Mesh(boneGeo, currentMat);
+                    boneR.rotation.z = -Math.PI / 3; // 斜め上30度
+                    boneR.position.x = 1.8;
+                    boneGroup.add(boneR);
+
+                    const boneL = new THREE.Mesh(boneGeo, currentMat);
+                    boneL.rotation.z = Math.PI / 3; // 斜め上30度
+                    boneL.position.x = -1.8;
+                    boneGroup.add(boneL);
+
+                    // 前後の骨で角度を交互に変えて（ハザード感を出す）
+                    const angleOffset = (idx % 2 === 0) ? 0 : Math.PI / 4;
+                    boneGroup.rotation.z = angleOffset;
+
+                    group.add(boneGroup);
+
+                    bones.push({ mesh: boneGroup, baseAngle: angleOffset, relY: 0.5 });
+                });
+
+                levelGroup.add(group);
+                obstacles.push({ type: 'fishbone', group: group, speed: reverse ? -speed : speed, bones: bones, pillar: pillar, isHorizontal: true });
+            } else {
+                // 1つ目のフィッシュボーン：元の縦（正面）向き
+                group.position.set(0, yOffset + 3.5, z);
+
+                const pillarMat = new THREE.MeshStandardMaterial({color: 0x444444, metalness: 0.7, roughness: 0.3});
+                const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 7, 16), pillarMat);
+                pillar.position.y = 0;
+                group.add(pillar);
+
+                const bones = [];
+                const boneMat = new THREE.MeshStandardMaterial({color: 0xff2244, roughness: 0.2, metalness: 0.4});
+                for(let i = 0; i < boneCount; i++) {
+                    const b = new THREE.Mesh(new THREE.BoxGeometry(8.0, 0.35, 0.35), boneMat);
+                    b.position.y = 0;
+                    b.rotation.z = (i * Math.PI) / boneCount;
+                    b.castShadow = true;
+                    group.add(b);
+                    bones.push({ mesh: b, baseAngle: (i * Math.PI) / boneCount, relY: b.position.y });
+                }
+                levelGroup.add(group);
+                obstacles.push({ type: 'fishbone', group: group, speed: reverse ? -speed : speed, bones: bones, pillar: pillar, isHorizontal: false });
+            }
+        }
+
+        function createPendulum(z, speed, offset, yOffset = 0) {
+            const group = new THREE.Group();
+            group.position.set(0, yOffset + 7, z);
+
+            const rodMat = new THREE.MeshStandardMaterial({ color: 0x777777 });
+            const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 7, 16), rodMat);
+            rod.position.y = -3.5;
+
+            const ballMat = new THREE.MeshStandardMaterial({ color: 0xff3366, roughness: 0.3 });
+            const ball = new THREE.Mesh(new THREE.SphereGeometry(1.2, 32, 32), ballMat);
+            ball.position.y = -7;
+
+            const pendulum = new THREE.Group();
+            pendulum.add(rod);
+            pendulum.add(ball);
+            group.add(pendulum);
+
+            levelGroup.add(group);
+            obstacles.push({ type: 'pendulum', group: pendulum, ballMesh: ball, speed: speed, offset: offset, box: new THREE.Box3() });
+        }
+
+        function createSweeper(z, speed = 0.03, yOffset = 0) {
+            const group = new THREE.Group();
+            group.position.set(0, yOffset + 0.5, z);
+
+            const rodMat = new THREE.MeshStandardMaterial({ color: 0xffcc00, roughness: 0.3 });
+            // 一本棒 (片側にのみ伸ばす)
+            const rod = new THREE.Mesh(new THREE.BoxGeometry(6.5, 0.8, 0.8), rodMat);
+            rod.position.x = 3.25; // 中心から片側へオフセット
+            rod.castShadow = true;
+            group.add(rod);
+
+            levelGroup.add(group);
+            obstacles.push({ type: 'sweeper', group: group, speed: speed, box: new THREE.Box3() });
+        }
+
+        function createGoal(z, yOffset = 0) {
+            goalZ = z;
+            podiumPos = { x: 0, y: yOffset, z: z };
+
+            // ゴールアーチ
+            const archMat = new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 0.6 });
+            const p1 = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 6, 16), archMat);
+            p1.position.set(-4, yOffset + 3, z + 3);
+            const p2 = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 6, 16), archMat);
+            p2.position.set(4, yOffset + 3, z + 3);
+            const top = new THREE.Mesh(new THREE.BoxGeometry(8.8, 0.6, 0.6), archMat);
+            top.position.set(0, yOffset + 6, z + 3);
+
+            levelGroup.add(p1);
+            levelGroup.add(p2);
+            levelGroup.add(top);
+
+            // 表彰台
+            const podGeo = new THREE.CylinderGeometry(2.5, 3, 1.5, 32);
+            const podMat = new THREE.MeshStandardMaterial({ color: 0xff4500, roughness: 0.4 });
+            const podium = new THREE.Mesh(podGeo, podMat);
+            podium.position.set(0, yOffset + 0.75, z);
+            podium.receiveShadow = true;
+            levelGroup.add(podium);
+        }
+
+        // --- Controls Setup ---
+        function setupControls() {
+            // Keyboard
+            window.addEventListener('keydown', (e) => {
+                keys[e.key] = true;
+                if (e.key === ' ' || e.key === 'Vector2') doJump();
+            });
+            window.addEventListener('keyup', (e) => {
+                keys[e.key] = false;
+            });
+
+            // Touch Joystick
+            const zone = document.getElementById('joystick-zone');
+            const knob = document.getElementById('joystick-knob');
+            let touchId = null;
+            let center = { x: 0, y: 0 };
+
+            zone.addEventListener('touchstart', (e) => {
+                const touch = e.changedTouches[0];
+                touchId = touch.identifier;
+                const rect = zone.getBoundingClientRect();
+                center = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+                updateJoystick(touch);
+            });
+
+            window.addEventListener('touchmove', (e) => {
+                if (touchId === null) return;
+                for (let t of e.changedTouches) {
+                    if (t.identifier === touchId) {
+                        updateJoystick(t);
+                        break;
+                    }
+                }
+            });
+
+            const endTouch = (e) => {
+                for (let t of e.changedTouches) {
+                    if (t.identifier === touchId) {
+                        touchId = null;
+                        joyVector = { x: 0, y: 0 };
+                        knob.style.transform = `translate(0px, 0px)`;
+                        break;
+                    }
+                }
+            };
+            window.addEventListener('touchend', endTouch);
+            window.addEventListener('touchcancel', endTouch);
+
+            function updateJoystick(touch) {
+                const dx = touch.clientX - center.x;
+                const dy = touch.clientY - center.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const maxDist = 40;
+
+                const angle = Math.atan2(dy, dx);
+                const clampedDist = Math.min(dist, maxDist);
+
+                const kx = Math.cos(angle) * clampedDist;
+                const ky = Math.sin(angle) * clampedDist;
+
+                knob.style.transform = `translate(${kx}px, ${ky}px)`;
+
+                joyVector = {
+                    x: kx / maxDist,
+                    y: ky / maxDist
+                };
+            }
+
+            // Jump Button
+            const jumpBtn = document.getElementById('jump-btn');
+            jumpBtn.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                doJump();
+            });
+            jumpBtn.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                doJump();
+            });
+        }
+
+        function doJump() {
+            if (gameState === 'PLAYING' && !isJumping) {
+                isJumping = true;
+                velocityY = jumpForce;
+            }
+        }
+
+        // --- Flow Control ---
+        function initGame(colorHex) {
+            selectedColor = colorHex;
+            document.getElementById('color-select-ui').classList.add('hidden');
+            
+            if (!player) {
+                player = createPlayer(selectedColor);
+                scene.add(player);
+            } else {
+                scene.remove(player);
+                player = createPlayer(selectedColor);
+                scene.add(player);
+            }
+
+            currentStage = 1;
+            startStage(currentStage);
+        }
+
+        function startStage(stageNum) {
+            buildStage(stageNum);
+            
+            document.getElementById('clear-ui').classList.add('hidden');
+            document.getElementById('gameover-ui').classList.add('hidden');
+            document.getElementById('timer-wrapper').classList.remove('hidden');
+            document.getElementById('game-controls').classList.remove('hidden');
+            
+            startCountdown();
+        }
+
+        function startNextStage() {
+            currentStage++;
+            startStage(currentStage);
+        }
+
+        function retryStage() {
+            startStage(currentStage);
+        }
+
+        function startCountdown() {
+            gameState = 'COUNTDOWN';
+            const countUI = document.getElementById('countdown-ui');
+            const countText = document.getElementById('countdown-text');
+            countUI.classList.remove('hidden');
+
+            let count = 3;
+            countText.textContent = count;
+
+            const timer = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    countText.textContent = count;
+                } else if (count === 0) {
+                    countText.textContent = "GO!";
+                } else {
+                    clearInterval(timer);
+                    countUI.classList.add('hidden');
+                    gameState = 'PLAYING';
+                    startTime = Date.now();
+                }
+            }, 800);
+        }
+
+        // --- Main Update Loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // どの状態でも背景の動く足場は常に更新・移動し続ける
+            updateMovingPlatforms();
+
+            if (gameState === 'PLAYING') {
+                updateTimer();
+                updatePlayer();
+                updateObstacles();
+                checkCollisions();
+            } else if (gameState === 'GOAL') {
+                updateGoalAnimation();
+            }
+
+            updateCamera();
+            renderer.render(scene, camera);
+        }
+
+        // 動く足場の独立した更新処理（キャラクターの状態に依存せず常に移動）
+        function updateMovingPlatforms() {
+            const time = Date.now() * 0.001;
+            for (let seg of trackSegments) {
+                if (seg.type === 'moving') {
+                    // 時間経過に応じて常に一定のリズムで左右にスライド移動
+                    const currentX = Math.sin(time * seg.speed * 100 + seg.offset) * seg.moveDist;
+                    seg.mesh.position.x = currentX;
+                }
+            }
+        }
+
+        function updateTimer() {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            remainingTime = Math.max(0, timeLimit - elapsed);
+            document.getElementById('timer-text').textContent = remainingTime;
+
+            if (remainingTime <= 0) {
+                gameState = 'GAMEOVER';
+                document.getElementById('gameover-ui').classList.remove('hidden');
+                document.getElementById('game-controls').classList.add('hidden');
+            }
+        }
+
+        function updatePlayer() {
+            // ノックバックの減衰
+            knockbackVelocity.x *= 0.85;
+            knockbackVelocity.z *= 0.85;
+
+            // 入力ベクトル
+            let moveX = joyVector.x;
+            let moveZ = joyVector.y;
+
+            if (keys['ArrowLeft'] || keys['a']) moveX = -1;
+            if (keys['ArrowRight'] || keys['d']) moveX = 1;
+            if (keys['ArrowUp'] || keys['w']) moveZ = -1;
+            if (keys['ArrowDown'] || keys['s']) moveZ = 1;
+
+            const inputLen = Math.sqrt(moveX * moveX + moveZ * moveZ);
+            if (inputLen > 1) {
+                moveX /= inputLen;
+                moveZ /= inputLen;
+            }
+
+            // 移動計算
+            const vx = moveX * speed + knockbackVelocity.x;
+            const vz = moveZ * speed + knockbackVelocity.z;
+
+            player.position.x += vx;
+            player.position.z += vz;
+
+            // 進行方向への顔・向きの回転
+            if (Math.abs(vx) > 0.01 || Math.abs(vz) > 0.01) {
+                const targetAngle = Math.atan2(vx, vz) + Math.PI;
+                player.rotation.y = targetAngle;
+            }
+
+            // 重力とY軸移動
+            velocityY += gravity;
+            player.position.y += velocityY;
+
+            // 床判定
+            let onGround = false;
+            let currentFloorY = 0;
+
+            for (let seg of trackSegments) {
+                if (seg.type === 'rect') {
+                    if (player.position.x >= seg.minX && player.position.x <= seg.maxX &&
+                        player.position.z <= seg.maxZ && player.position.z >= seg.minZ) {
+                        
+                        if (player.position.y <= seg.y && player.position.y >= seg.y - 1.5) {
+                            onGround = true;
+                            currentFloorY = seg.y;
+                            currentCheckPoint = { x: 0, y: seg.y, z: seg.checkZ };
+                            break;
+                        }
+                    }
+                } else if (seg.type === 'round') {
+                    const dx = player.position.x - seg.x;
+                    const dz = player.position.z - seg.z;
+                    if (Math.sqrt(dx * dx + dz * dz) <= seg.radius) {
+                        if (player.position.y <= seg.y && player.position.y >= seg.y - 1.5) {
+                            onGround = true;
+                            currentFloorY = seg.y;
+                            currentCheckPoint = { x: 0, y: seg.y, z: seg.checkZ };
+                            break;
+                        }
+                    }
+                } else if (seg.type === 'moving') {
+                    // 最新の足場の位置を取得
+                    const currentX = seg.mesh.position.x;
+
+                    const dx = player.position.x - currentX;
+                    const dz = player.position.z - seg.baseZ;
+                    if (Math.sqrt(dx * dx + dz * dz) <= seg.radius) {
+                        if (player.position.y <= seg.y && player.position.y >= seg.y - 1.5) {
+                            onGround = true;
+                            currentFloorY = seg.y;
+                            currentCheckPoint = { x: 0, y: seg.y, z: seg.checkZ };
+                            
+                            // 足場に乗っている間は、足場の移動に合わせてプレイヤーも一緒に移動
+                            const time = Date.now() * 0.001;
+                            const nextTime = time + 0.016;
+                            const nextX = Math.sin(nextTime * seg.speed * 100 + seg.offset) * seg.moveDist;
+                            player.position.x += (nextX - currentX);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (onGround) {
+                player.position.y = currentFloorY;
+                velocityY = 0;
+                isJumping = false;
+            }
+
+            // 落下判定
+            if (player.position.y < -10) {
+                respawnAtCheckpoint();
+            }
+
+            // ゴール判定
+            if (player.position.z <= goalZ + 1) {
+                reachGoal();
+            }
+
+            // Player Bounding Box
+            playerBox.setFromObject(player);
+        }
+
+        function respawnAtCheckpoint() {
+            player.position.set(currentCheckPoint.x, currentCheckPoint.y + 1, currentCheckPoint.z);
+            velocityY = 0;
+            isJumping = false;
+            knockbackVelocity = { x: 0, z: 0 };
+
+            // Flash effect
+            const overlay = document.getElementById('damage-overlay');
+            overlay.classList.add('damage-flash');
+            setTimeout(() => overlay.classList.remove('damage-flash'), 300);
+        }
+
+        function updateObstacles() {
+            const time = Date.now() * 0.002;
+
+            for (let obs of obstacles) {
+                if (obs.type === 'fishbone') {
+                    obs.group.rotation.y += obs.speed;
+                } else if (obs.type === 'pendulum') {
+                    const angle = Math.sin(time * obs.speed + obs.offset) * 1.2;
+                    obs.group.rotation.z = angle;
+                    obs.box.setFromObject(obs.ballMesh);
+                } else if (obs.type === 'sweeper') {
+                    obs.group.rotation.y += obs.speed;
+                    obs.box.setFromObject(obs.group);
+                }
+            }
+        }
+
+        function checkCollisions() {
+            for (let obs of obstacles) {
+                if (obs.type === 'fishbone') {
+                    const gPos = obs.group.position;
+                    const dxP = player.position.x - gPos.x;
+                    const dzP = player.position.z - gPos.z;
+
+                    if (obs.isHorizontal) {
+                        // 横向き（2つ目）フィッシュボーンの判定
+                        const distP = Math.sqrt(dxP * dxP + dzP * dzP);
+                        if (distP < 1.2 && Math.abs(player.position.y - (gPos.y - 0.5)) < 3.5) {
+                            handleHitAndRespawn(gPos);
+                            return;
+                        }
+
+                        const currentGroupRot = obs.group.rotation.y;
+                        for (let b of obs.bones) {
+                            const boneY = gPos.y + b.relY;
+                            if (Math.abs(player.position.y - boneY) < 0.95) {
+                                const totalAngle = currentGroupRot + b.baseAngle;
+                                const cosA = Math.cos(-totalAngle);
+                                const sinA = Math.sin(-totalAngle);
+                                const localX = dxP * cosA - dzP * sinA;
+                                const localZ = dxP * sinA + dzP * cosA;
+
+                                if (Math.abs(localX) <= 4.4 && Math.abs(localZ) <= 0.75) {
+                                    handleHitAndRespawn(gPos);
+                                    return;
+                                }
+                            }
+                        }
+                    } else {
+                        // 1つ目のフィッシュボーン（元の縦向き）判定
+                        const distP = Math.sqrt(dxP * dxP + dzP * dzP);
+                        if (distP < 1.2 && Math.abs(player.position.y - gPos.y) < 4.0) {
+                            handleHit(gPos, 1.8);
+                            return;
+                        }
+
+                        const currentGroupRot = obs.group.rotation.y;
+                        for (let b of obs.bones) {
+                            if (Math.abs(dzP) < 1.0) {
+                                const totalAngle = currentGroupRot + b.baseAngle;
+                                const cosA = Math.cos(totalAngle);
+                                const sinA = Math.sin(totalAngle);
+                                const localX = dxP * cosA + (player.position.y - gPos.y) * sinA;
+                                const localY = -dxP * sinA + (player.position.y - gPos.y) * cosA;
+
+                                if (Math.abs(localX) <= 4.4 && Math.abs(localY) <= 0.75) {
+                                    handleHitAndRespawn(gPos);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                } else if (obs.type === 'pendulum') {
+                    if (playerBox.intersectsBox(obs.box)) {
+                        handleHit(obs.group.position, 1.2);
+                        return;
+                    }
+                } else if (obs.type === 'sweeper') {
+                    if (playerBox.intersectsBox(obs.box)) {
+                        handleHit(obs.group.position, 1.2);
+                        return;
+                    }
+                }
+            }
+        }
+
+        function handleHit(obstaclePos, power = 1.0) {
+            const dx = player.position.x - obstaclePos.x;
+            const dz = player.position.z - obstaclePos.z;
+            const len = Math.sqrt(dx * dx + dz * dz) || 1;
+
+            // 押し出しベクトル（貫通防止のため即座に少し外側へ外す）
+            player.position.x += (dx / len) * 0.3;
+            player.position.z += (dz / len) * 0.3;
+
+            // 障害物の中心からの方向へダイナミックにはね飛ばす
+            knockbackVelocity.x = (dx / len) * 1.6 * power;
+            knockbackVelocity.z = (dz / len) * 1.6 * power + 0.5; // 後方・外方向へ吹っ飛ぶ
+            velocityY = 0.45 * power; // 上方向にも跳ね上がる
+
+            const overlay = document.getElementById('damage-overlay');
+            overlay.classList.add('damage-flash');
+            setTimeout(() => overlay.classList.remove('damage-flash'), 300);
+        }
+
+        // 2つ目のフィッシュボーン用のヒット＆チェックポイント復帰処理
+        function handleHitAndRespawn(obstaclePos) {
+            handleHit(obstaclePos, 2.0);
+            setTimeout(() => {
+                respawnAtCheckpoint();
+            }, 150);
+        }
+
+        function reachGoal() {
+            gameState = 'GOAL';
+            goalTime = Date.now();
+
+            player.position.set(podiumPos.x, podiumPos.y + 1.5, podiumPos.z);
+            player.rotation.set(0, 0, 0);
+
+            document.getElementById('game-controls').classList.add('hidden');
+            document.getElementById('timer-wrapper').classList.add('hidden');
+
+            setTimeout(() => {
+                const clearTitle = document.getElementById('clear-title');
+                const clearBtn = document.getElementById('next-stage-btn');
+
+                if (currentStage >= 2) {
+                    // 最終ステージクリア時
+                    clearTitle.textContent = "FINISH!";
+                    clearBtn.textContent = "Title Screen";
+                } else {
+                    // 通常ステージクリア時
+                    clearTitle.textContent = "STAGE CLEAR!";
+                    clearBtn.textContent = "Next Stage!";
+                }
+                document.getElementById('clear-ui').classList.remove('hidden');
+            }, 1200);
+        }
+
+        function handleClearNext() {
+            if (currentStage >= 2) {
+                // タイトル（カラー選択画面）に戻る
+                document.getElementById('clear-ui').classList.add('hidden');
+                document.getElementById('color-select-ui').classList.remove('hidden');
+                gameState = 'SELECT';
+            } else {
+                startNextStage();
+            }
+        }
+
+        function updateGoalAnimation() {
+            const t = (Date.now() - goalTime) * 0.008;
+
+            // キャラクターだけが表飾台の上で万歳して跳ねる
+            player.position.y = podiumPos.y + 1.5 + Math.abs(Math.sin(t * 2)) * 0.8;
+
+            // 両手を上に広げる（バンザイ）
+            const handR = player.getObjectByName("handR");
+            const handL = player.getObjectByName("handL");
+            if (handR && handL) {
+                handR.position.y = 0.8 + Math.sin(t * 4) * 0.1;
+                handL.position.y = 0.8 + Math.sin(t * 4) * 0.1;
+                handR.position.x = 0.6;
+                handL.position.x = -0.6;
+            }
+        }
+
+        function updateCamera() {
+            if (!player) return;
+
+            let targetCamPos, lookTarget;
+
+            if (gameState === 'GOAL') {
+                // 表彰台演出（画面・視点は動かさず、画面揺れを完全防止）
+                targetCamPos = new THREE.Vector3(podiumPos.x, podiumPos.y + 3, podiumPos.z + 8);
+                lookTarget = new THREE.Vector3(podiumPos.x, podiumPos.y + 1.8, podiumPos.z);
+            } else {
+                // 追従カメラ
+                targetCamPos = new THREE.Vector3(player.position.x, player.position.y + 5, player.position.z + 12);
+                lookTarget = new THREE.Vector3(player.position.x, player.position.y + 1, player.position.z - 2);
+            }
+
+            camera.position.lerp(targetCamPos, 0.1);
+            camera.lookAt(lookTarget);
+        }
+
+        // --- Start Game ---
+        window.onload = () => {
+            initThree();
+        };
+    </script>
+</body>
+</html>
